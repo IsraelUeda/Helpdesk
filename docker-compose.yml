@@ -19,8 +19,10 @@ services:
     container_name: helpdesk_api
     restart: always
     environment:
-      # Puxando as credenciais seguras do seu arquivo .env
-      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_HOST=db # O nome do contêiner do banco
     ports:
       - "8000:8000"
     depends_on:
@@ -29,7 +31,6 @@ services:
       - helpdesk_network
     volumes:
       - ./backend:/app
-
 networks:
   helpdesk_network:
     driver: bridge
