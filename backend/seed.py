@@ -4,19 +4,17 @@ import models
 from security import hash_password
 
 def seed_demo_data(db: Session):
-    # Se já houver tickets no banco, não precisa semear
-    if db.query(models.Ticket).first():
-        return
-
     # 1. Usuário padrão
-    user = models.User(
-        email="admin@empresa.com",
-        name="Suporte TI",
-        hashed_password=hash_password("123456"),
-        role="atendente",
-    )
-    db.add(user)
-    db.flush()
+    existing_user = db.query(models.User).filter(models.User.email == "admin@empresa.com").first()
+    if not existing_user:
+        user = models.User(
+            email="admin@empresa.com",
+            name="Suporte TI",
+            hashed_password=hash_password("123456"),
+            role="atendente",
+        )
+        db.add(user)
+        db.flush()
 
     # 2. Tickets de demonstração
     demo_tickets = [
@@ -83,8 +81,24 @@ def seed_demo_data(db: Session):
     ]
 
     for t_data in demo_tickets:
-        ticket = models.Ticket(**t_data)
-        db.add(ticket)
+        existing_ticket = db.query(models.Ticket).filter(models.Ticket.id == t_data["id"]).first()
+        if not existing_ticket:
+            db.add(models.Ticket(**t_data))
+        else:
+            if not existing_ticket.titulo:
+                existing_ticket.titulo = t_data["titulo"]
+            if not existing_ticket.solicitante:
+                existing_ticket.solicitante = t_data["solicitante"]
+            if not existing_ticket.categoria:
+                existing_ticket.categoria = t_data["categoria"]
+            if not existing_ticket.prioridade:
+                existing_ticket.prioridade = t_data["prioridade"]
+            if not existing_ticket.status:
+                existing_ticket.status = t_data["status"]
+            if not existing_ticket.sla_vencimento:
+                existing_ticket.sla_vencimento = t_data["sla_vencimento"]
+            if not existing_ticket.criado_em:
+                existing_ticket.criado_em = t_data["criado_em"]
     db.flush()
 
     # 3. Mensagens
@@ -107,8 +121,13 @@ def seed_demo_data(db: Session):
     ]
 
     for m_data in demo_messages:
-        msg = models.Message(**m_data)
-        db.add(msg)
+        existing_msg = db.query(models.Message).filter(
+            models.Message.ticket_id == m_data["ticket_id"],
+            models.Message.texto == m_data["texto"],
+        ).first()
+        if not existing_msg:
+            db.add(models.Message(**m_data))
+    db.flush()
 
     # 4. Sugestões de IA
     demo_suggestions = [
@@ -120,7 +139,10 @@ def seed_demo_data(db: Session):
     ]
 
     for s_data in demo_suggestions:
-        sug = models.AiSuggestion(**s_data)
-        db.add(sug)
+        existing_sug = db.query(models.AiSuggestion).filter(
+            models.AiSuggestion.ticket_id == s_data["ticket_id"]
+        ).first()
+        if not existing_sug:
+            db.add(models.AiSuggestion(**s_data))
 
     db.commit()

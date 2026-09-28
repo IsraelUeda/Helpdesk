@@ -1,17 +1,59 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 from database import engine, SessionLocal
 import models
 from routers import auth, metrics, tickets
 from seed import seed_demo_data
 
-# Cria as tabelas no banco de dados
-models.Base.metadata.create_all(bind=engine)
+def migrate_database_schema(db_engine):
+    """
+    Garante a criação de todas as tabelas e adiciona colunas que possam faltar
+    caso a tabela 'tickets' tenha sido criada em versão anterior no volume do PostgreSQL.
+    """
+    models.Base.metadata.create_all(bind=db_engine)
+
+    try:
+        inspector = inspect(db_engine)
+        if "tickets" in inspector.get_table_names():
+            columns = [c["name"] for c in inspector.get_columns("tickets")]
+            with db_engine.begin() as conn:
+                if "titulo" not in columns:
+                    conn.execute(text("ALTER TABLE tickets ADD COLUMN titulo VARCHAR"))
+                if "solicitante" not in columns:
+                    conn.execute(text("ALTER TABLE tickets ADD COLUMN solicitante VARCHAR DEFAULT 'Usuário'"))
+                if "categoria" not in columns:
+                    conn.execute(text("ALTER TABLE tickets ADD COLUMN categoria VARCHAR DEFAULT 'Geral'"))
+                if "prioridade" not in columns:
+                    conn.execute(text("ALTER TABLE tickets ADD COLUMN prioridade VARCHAR DEFAULT 'media'"))
+                if "status" not in columns:
+                    conn.execute(text("ALTER TABLE tickets ADD COLUMN status VARCHAR DEFAULT 'aberto'"))
+                if "sla_vencimento" not in columns:
+                    conn.execute(text("ALTER TABLE tickets ADD COLUMN sla_vencimento TIMESTAMP"))
+                if "criado_em" not in columns:
+                    conn.execute(text("ALTER TABLE tickets ADD COLUMN criado_em TIMESTAMP"))
+                if "title" not in columns:
+                    conn.execute(text("ALTER TABLE tickets ADD COLUMN title VARCHAR"))
+                if "description" not in columns:
+                    conn.execute(text("ALTER TABLE tickets ADD COLUMN description VARCHAR"))
+
+                conn.execute(text("UPDATE tickets SET titulo = title WHERE titulo IS NULL AND title IS NOT NULL"))
+                conn.execute(text("UPDATE tickets SET titulo = 'Chamado' WHERE titulo IS NULL"))
+                conn.execute(text("UPDATE tickets SET solicitante = 'Usuário' WHERE solicitante IS NULL"))
+                conn.execute(text("UPDATE tickets SET categoria = 'Geral' WHERE categoria IS NULL"))
+                conn.execute(text("UPDATE tickets SET prioridade = 'media' WHERE prioridade IS NULL"))
+                conn.execute(text("UPDATE tickets SET status = 'aberto' WHERE status IS NULL"))
+    except Exception as exc:
+        print(f"[Aviso Migração] {exc}")
+
+# Executa migração de esquema
+migrate_database_schema(engine)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Semeia os dados padrão de demonstração se o banco estiver vazio
+    # Assegura o esquema e semeia os dados na inicialização da aplicação
+    migrate_database_schema(engine)
     db = SessionLocal()
     try:
         seed_demo_data(db)
