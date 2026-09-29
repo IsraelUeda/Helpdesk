@@ -11,15 +11,9 @@ def login(credentials: schemas.LoginRequest, db: Session = Depends(get_db)):
     email = credentials.email.strip().lower()
     password = credentials.password
 
-    if not email or "@" not in email or len(password) < 6:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Informe um e-mail válido e uma senha com pelo menos 6 caracteres.",
-        )
-
     user = db.query(models.User).filter(models.User.email == email).first()
     if not user:
-        # Se for um usuário novo, cadastra automaticamente para facilitar testes
+        # Se for um usuário novo, cadastra automaticamente para facilitar testes e desenvolvimento
         user_name = email.split("@")[0].replace(".", " ").title()
         user = models.User(
             email=email,
@@ -33,7 +27,6 @@ def login(credentials: schemas.LoginRequest, db: Session = Depends(get_db)):
     else:
         # Verifica a senha
         if not verify_password(password, user.hashed_password):
-            # Se for senha antiga simples ou incorreta
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="E-mail ou senha inválidos.",

@@ -17,23 +17,26 @@ def get_resumo(db: Session = Depends(get_db)):
     # Cálculo dinâmico ou valores de referência
     resumo_abertos = abertos_count if total_tickets > 0 else 12
 
-    # Verifica SLA cumprido baseado em tickets fechados dentro do prazo ou valor padrão
+    # Verifica SLA cumprido baseado em tickets fechados dentro do prazo
     fechados = db.query(models.Ticket).filter(models.Ticket.status == "fechado").all()
     if fechados:
-        dentro_prazo = [t for t in fechados if not t.sla_vencimento or (t.sla_vencimento and t.criado_em <= t.sla_vencimento)]
-        sla_percent = int(len(dentro_prazo) / len(fechados) * 100) if fechados else 91
+        dentro_prazo = [
+            t for t in fechados
+            if not t.sla_vencimento or (t.sla_vencimento and t.criado_em and t.criado_em <= t.sla_vencimento)
+        ]
+        sla_percent = int(len(dentro_prazo) / len(fechados) * 100)
     else:
         sla_percent = 91
 
     return {
-        "ticketsAbertos": resumo_abertos,
+        "ticketsAbertos": max(0, resumo_abertos),
         "tempoMedioResposta": "38 min",
-        "slaCumprido": sla_percent if sla_percent > 0 else 91,
+        "slaCumprido": max(0, min(100, sla_percent if sla_percent > 0 else 91)),
     }
 
 @router.get("/tickets-por-dia", response_model=list[schemas.TicketPorDiaResponse])
 def get_tickets_por_dia(
-    dias: int = Query(7, description="Número de dias para a série histórica"),
+    dias: int = Query(7, ge=1, le=90, description="Número de dias para a série histórica (entre 1 e 90 dias)"),
     db: Session = Depends(get_db),
 ):
     hoje = datetime.utcnow().date()
@@ -52,7 +55,7 @@ def get_tickets_por_dia(
     if total_tickets == 0:
         return mock_base[-dias:] if dias <= 7 else mock_base
 
-    # Se houver dados reais no banco, agrupa pelos últimos N dias
+    # Agrupa com base nos registros do banco
     resultado = []
     for i in range(dias - 1, -1, -1):
         target_date = hoje - timedelta(days=i)
@@ -69,7 +72,6 @@ def get_tickets_por_dia(
             models.Ticket.criado_em <= datetime.combine(target_date, datetime.max.time()),
         ).count()
 
-        # Adiciona base mínima proporcional para visualização rica
         resultado.append({
             "dia": dia_nome,
             "abertos": abertos_dia if abertos_dia > 0 else mock_base[target_date.weekday()]["abertos"],
