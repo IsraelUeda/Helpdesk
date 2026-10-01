@@ -86,6 +86,8 @@ open http://localhost:8000/docs
 ## Endpoints principais
 | Método | Rota | Descrição | Auth? |
 |--------|------|-----------|-------|
+| `GET`  | `/health` | Health‑check e status da conexão com o banco. | Não |
+| `POST` | `/auth/register` | Cadastro de novo usuário (`email`, `name`, `password`, `role`). | Não |
 | `POST` | `/auth/login` | Login – recebe `email` e `password`. | Não |
 | `GET`  | `/auth/me` | Dados do usuário autenticado. | Sim |
 | `GET`  | `/tickets` | Lista tickets (paginação). | Sim |

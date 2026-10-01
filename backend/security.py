@@ -41,10 +41,6 @@ def get_current_user(
     db: Session = Depends(get_db),
 ) -> models.User:
     if not credentials:
-        # Tenta pegar o primeiro usuário do banco para facilitar o desenvolvimento local
-        user = db.query(models.User).first()
-        if user:
-            return user
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Autenticação necessária.",

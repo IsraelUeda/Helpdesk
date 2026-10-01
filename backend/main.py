@@ -85,3 +85,13 @@ app.include_router(tickets.router)
 @app.get("/")
 def read_root():
     return {"mensagem": "API do Help Desk rodando com segurança e todos os 11 endpoints disponíveis!"}
+
+
+@app.get("/health", tags=["Sistema"])
+def health_check():
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"status": "ok", "database": "connected"}
+    except Exception as exc:
+        return {"status": "degraded", "database": f"error: {str(exc)}"}

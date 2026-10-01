@@ -6,31 +6,39 @@ from security import verify_password, hash_password, create_access_token, get_cu
 
 router = APIRouter(prefix="/auth", tags=["Autenticação"])
 
+@router.post("/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
+def register(user_data: schemas.RegisterRequest, db: Session = Depends(get_db)):
+    email = user_data.email.strip().lower()
+    existing_user = db.query(models.User).filter(models.User.email == email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="E-mail já cadastrado.",
+        )
+
+    novo_usuario = models.User(
+        email=email,
+        name=user_data.name.strip(),
+        hashed_password=hash_password(user_data.password),
+        role=user_data.role or "atendente",
+    )
+    db.add(novo_usuario)
+    db.commit()
+    db.refresh(novo_usuario)
+    return novo_usuario
+
+
 @router.post("/login", response_model=schemas.TokenResponse)
 def login(credentials: schemas.LoginRequest, db: Session = Depends(get_db)):
     email = credentials.email.strip().lower()
     password = credentials.password
 
     user = db.query(models.User).filter(models.User.email == email).first()
-    if not user:
-        # Se for um usuário novo, cadastra automaticamente para facilitar testes e desenvolvimento
-        user_name = email.split("@")[0].replace(".", " ").title()
-        user = models.User(
-            email=email,
-            name=user_name,
-            hashed_password=hash_password(password),
-            role="atendente",
+    if not user or not verify_password(password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="E-mail ou senha inválidos.",
         )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    else:
-        # Verifica a senha
-        if not verify_password(password, user.hashed_password):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="E-mail ou senha inválidos.",
-            )
 
     token = create_access_token({"sub": user.id, "email": user.email})
     return {

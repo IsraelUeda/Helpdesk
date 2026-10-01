@@ -5,8 +5,13 @@ from sqlalchemy.orm import Session
 from database import get_db
 import models, schemas
 from rate_limiter import limit_ticket_creation
+from security import get_current_user
 
-router = APIRouter(prefix="/tickets", tags=["Tickets"])
+router = APIRouter(
+    prefix="/tickets",
+    tags=["Tickets"],
+    dependencies=[Depends(get_current_user)],
+)
 
 ALLOWED_STATUSES = {"aberto", "em_andamento", "fechado"}
 ALLOWED_PRIORITIES = {"baixa", "media", "alta", "urgente"}
@@ -60,14 +65,16 @@ def list_tickets(
 def create_ticket(
     ticket_data: schemas.TicketCreate,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     titulo_final = (ticket_data.titulo or ticket_data.title or "Novo Chamado").strip()
     status_final = ticket_data.status.value if hasattr(ticket_data.status, "value") else (ticket_data.status or "aberto")
     prioridade_final = ticket_data.prioridade.value if hasattr(ticket_data.prioridade, "value") else (ticket_data.prioridade or "media")
+    solicitante_final = (ticket_data.solicitante if ticket_data.solicitante and ticket_data.solicitante != "Usuário" else (current_user.name or "Usuário")).strip()
 
     novo_ticket = models.Ticket(
         titulo=titulo_final,
-        solicitante=(ticket_data.solicitante or "Usuário").strip(),
+        solicitante=solicitante_final,
         categoria=(ticket_data.categoria or "Geral").strip(),
         prioridade=prioridade_final,
         status=status_final,
@@ -194,6 +201,7 @@ def create_ticket_message(
     ticket_id: int,
     mensagem: schemas.MessageCreate,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     if ticket_id <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID de ticket inválido")
@@ -202,11 +210,12 @@ def create_ticket_message(
     if not ticket:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket não encontrado")
 
-    papel_final = mensagem.papel.value if hasattr(mensagem.papel, "value") else (mensagem.papel or "atendente")
+    papel_final = mensagem.papel.value if hasattr(mensagem.papel, "value") else (mensagem.papel or current_user.role or "atendente")
+    autor_final = (mensagem.autor or current_user.name or "Suporte TI").strip()
 
     nova_mensagem = models.Message(
         ticket_id=ticket_id,
-        autor=mensagem.autor or "Suporte TI",
+        autor=autor_final,
         papel=papel_final,
         texto=mensagem.texto,
         enviado_em=datetime.utcnow(),

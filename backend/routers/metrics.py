@@ -3,8 +3,13 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from database import get_db
 import models, schemas
+from security import get_current_user
 
-router = APIRouter(prefix="/metricas", tags=["Métricas"])
+router = APIRouter(
+    prefix="/metricas",
+    tags=["Métricas"],
+    dependencies=[Depends(get_current_user)],
+)
 
 DIAS_SEMANA = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 

@@ -34,10 +34,21 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=6, max_length=128, description="Senha com no mínimo 6 caracteres")
 
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    name: str = Field(..., min_length=2, max_length=100, description="Nome completo do usuário")
+    password: str = Field(..., min_length=6, max_length=128, description="Senha com no mínimo 6 caracteres")
+    role: Optional[str] = Field("atendente", max_length=50, description="Papel: 'atendente' ou 'cliente'")
+
     @field_validator("email")
     @classmethod
     def sanitize_email(cls, v: str) -> str:
         return v.strip().lower()
+
+    @field_validator("name")
+    @classmethod
+    def sanitize_name(cls, v: str) -> str:
+        return v.strip()
 
 
 class UserResponse(BaseModel):
