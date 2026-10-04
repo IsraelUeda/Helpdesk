@@ -29,6 +29,13 @@ class AiSuggestionStatus(str, Enum):
     ignorado = "ignorado"
 
 
+class UserRole(str, Enum):
+    cliente = "cliente"
+    atendente = "atendente"
+    admin = "admin"
+
+
+
 # --- Auth Schemas ---
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -132,6 +139,8 @@ class TicketUpdate(BaseModel):
     prioridade: Optional[TicketPriority] = None
     status: Optional[TicketStatus] = None
     slaVencimento: Optional[str] = None
+    assigned_to_id: Optional[int] = None
+    assignedToId: Optional[int] = None
 
     @field_validator("slaVencimento")
     @classmethod
@@ -150,6 +159,10 @@ class TicketUpdate(BaseModel):
         return v.strip() if v is not None else None
 
 
+class AssignTicketRequest(BaseModel):
+    assigned_to_id: int = Field(..., description="ID do atendente ou admin a ser atribuído")
+
+
 class TicketResponse(BaseModel):
     id: int
     titulo: str
@@ -161,9 +174,28 @@ class TicketResponse(BaseModel):
     criadoEm: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
+    userId: Optional[int] = None
+    assignedToId: Optional[int] = None
+    tecnicoResponsavel: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+class TicketHistoryResponse(BaseModel):
+    id: int
+    ticketId: int
+    userId: Optional[int] = None
+    usuarioNome: Optional[str] = "Sistema"
+    acao: str
+    campo: Optional[str] = None
+    valor_antigo: Optional[str] = None
+    valor_novo: Optional[str] = None
+    criadoEm: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
 
 
 # --- Mensagens Schemas ---

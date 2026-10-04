@@ -28,6 +28,13 @@ def auth_token():
 def auth_header(auth_token):
     return {"Authorization": f"Bearer {auth_token}"}
 
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    rate_limiter.ticket_creation_limiter.requests.clear()
+    yield
+    rate_limiter.ticket_creation_limiter.requests.clear()
+
+
 def test_root_endpoint():
     resp = client.get("/")
     assert resp.status_code == 200
@@ -178,3 +185,80 @@ def test_rate_limiting(auth_header):
             blocked += 1
     assert successes == 25, f"Deve permitir exatamente 25 criações, permitiu {successes}"
     assert blocked == 2, f"Deve bloquear 2 criações, bloqueou {blocked}"
+
+
+def test_client_ticket_isolation_and_ownership():
+    # Cria Cliente 1
+    c1_email = f"client1_{uuid.uuid4().hex[:8]}@example.com"
+    client.post("/auth/register", json={"email": c1_email, "name": "Cliente Um", "password": "senhaSegura123", "role": "cliente"})
+    r1 = client.post("/auth/login", json={"email": c1_email, "password": "senhaSegura123"})
+    c1_header = {"Authorization": f"Bearer {r1.json()['access_token']}"}
+
+    # Cria Cliente 2
+    c2_email = f"client2_{uuid.uuid4().hex[:8]}@example.com"
+    client.post("/auth/register", json={"email": c2_email, "name": "Cliente Dois", "password": "senhaSegura123", "role": "cliente"})
+    r2 = client.post("/auth/login", json={"email": c2_email, "password": "senhaSegura123"})
+    c2_header = {"Authorization": f"Bearer {r2.json()['access_token']}"}
+
+    # Cliente 1 cria ticket
+    t1_resp = client.post("/tickets", json={"titulo": "Chamado do Cliente 1"}, headers=c1_header)
+    assert t1_resp.status_code == 201
+    t1_id = t1_resp.json()["id"]
+
+    # Cliente 2 cria ticket
+    t2_resp = client.post("/tickets", json={"titulo": "Chamado do Cliente 2"}, headers=c2_header)
+    assert t2_resp.status_code == 201
+    t2_id = t2_resp.json()["id"]
+
+    # Cliente 1 lista tickets -> deve ver t1_id e não deve ver t2_id
+    c1_list = client.get("/tickets", headers=c1_header).json()
+    c1_ids = [t["id"] for t in c1_list]
+    assert t1_id in c1_ids
+    assert t2_id not in c1_ids
+
+    # Cliente 1 tenta acessar t2 diretamente -> 403 Forbidden
+    forbidden_resp = client.get(f"/tickets/{t2_id}", headers=c1_header)
+    assert forbidden_resp.status_code == 403
+
+    # Cliente 1 acessa seu próprio ticket -> 200 OK
+    ok_resp = client.get(f"/tickets/{t1_id}", headers=c1_header)
+    assert ok_resp.status_code == 200
+
+
+def test_client_cannot_change_priority():
+    c_email = f"client_pri_{uuid.uuid4().hex[:8]}@example.com"
+    client.post("/auth/register", json={"email": c_email, "name": "Cliente Prioridade", "password": "senhaSegura123", "role": "cliente"})
+    r = client.post("/auth/login", json={"email": c_email, "password": "senhaSegura123"})
+    c_header = {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+    ticket_resp = client.post("/tickets", json={"titulo": "Ticket Cliente Prioridade"}, headers=c_header)
+    t_id = ticket_resp.json()["id"]
+
+    # Tentativa de alterar prioridade pelo cliente -> 403
+    update_resp = client.put(f"/tickets/{t_id}", json={"prioridade": "urgente"}, headers=c_header)
+    assert update_resp.status_code == 403
+
+
+def test_assign_technician_and_history(auth_header):
+    # Cria atendente auxiliar
+    tech_email = f"tech_{uuid.uuid4().hex[:8]}@example.com"
+    r_tech = client.post("/auth/register", json={"email": tech_email, "name": "Tecnico Suporte", "password": "senhaSegura123", "role": "atendente"})
+    tech_id = r_tech.json()["id"]
+
+    ticket_resp = client.post("/tickets", json={"titulo": "Ticket para atribuir"}, headers=auth_header)
+    t_id = ticket_resp.json()["id"]
+
+    # Atribui o chamado ao técnico
+    assign_resp = client.post(f"/tickets/{t_id}/atribuir", json={"assigned_to_id": tech_id}, headers=auth_header)
+    assert assign_resp.status_code == 200
+    assert assign_resp.json()["assignedToId"] == tech_id
+    assert assign_resp.json()["tecnicoResponsavel"] == "Tecnico Suporte"
+
+    # Consulta histórico
+    hist_resp = client.get(f"/tickets/{t_id}/historico", headers=auth_header)
+    assert hist_resp.status_code == 200
+    history = hist_resp.json()
+    acoes = [h["acao"] for h in history]
+    assert "criacao" in acoes
+    assert "atribuicao_responsavel" in acoes
+

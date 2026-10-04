@@ -4,17 +4,29 @@ import models
 from security import hash_password
 
 def seed_demo_data(db: Session):
-    # 1. Usuário padrão
+    # 1. Usuários padrão
     existing_user = db.query(models.User).filter(models.User.email == "admin@empresa.com").first()
     if not existing_user:
-        user = models.User(
+        existing_user = models.User(
             email="admin@empresa.com",
             name="Suporte TI",
             hashed_password=hash_password("123456"),
             role="atendente",
         )
-        db.add(user)
+        db.add(existing_user)
         db.flush()
+
+    existing_client = db.query(models.User).filter(models.User.email == "cliente@empresa.com").first()
+    if not existing_client:
+        existing_client = models.User(
+            email="cliente@empresa.com",
+            name="Marina Alves",
+            hashed_password=hash_password("123456"),
+            role="cliente",
+        )
+        db.add(existing_client)
+        db.flush()
+
 
     # 2. Tickets de demonstração
     demo_tickets = [

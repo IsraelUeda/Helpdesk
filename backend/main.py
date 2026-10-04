@@ -37,6 +37,11 @@ def migrate_database_schema(db_engine):
                     conn.execute(text("ALTER TABLE tickets ADD COLUMN title VARCHAR"))
                 if "description" not in columns:
                     conn.execute(text("ALTER TABLE tickets ADD COLUMN description VARCHAR"))
+                if "user_id" not in columns:
+                    conn.execute(text("ALTER TABLE tickets ADD COLUMN user_id INTEGER"))
+                if "assigned_to_id" not in columns:
+                    conn.execute(text("ALTER TABLE tickets ADD COLUMN assigned_to_id INTEGER"))
+
 
                 conn.execute(text("UPDATE tickets SET titulo = title WHERE titulo IS NULL AND title IS NOT NULL"))
                 conn.execute(text("UPDATE tickets SET titulo = 'Chamado' WHERE titulo IS NULL"))
