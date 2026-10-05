@@ -62,3 +62,16 @@ def get_current_user(
             detail="Usuário não encontrado.",
         )
     return user
+
+
+def require_roles(*roles: str):
+    """Dependência para verificar se o usuário autenticado possui um dos papéis exigidos."""
+    def role_checker(current_user: models.User = Depends(get_current_user)) -> models.User:
+        if current_user.role not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permissão negada. Apenas usuários com perfil {roles} têm acesso.",
+            )
+        return current_user
+    return role_checker
+

@@ -163,6 +163,10 @@ class AssignTicketRequest(BaseModel):
     assigned_to_id: int = Field(..., description="ID do atendente ou admin a ser atribuído")
 
 
+class UpdateUserRoleRequest(BaseModel):
+    role: UserRole = Field(..., description="Novo papel do usuário ('cliente', 'atendente', 'admin')")
+
+
 class TicketResponse(BaseModel):
     id: int
     titulo: str
@@ -172,6 +176,7 @@ class TicketResponse(BaseModel):
     status: str
     slaVencimento: Optional[str] = None
     criadoEm: Optional[str] = None
+    fechadoEm: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
     userId: Optional[int] = None
@@ -180,6 +185,7 @@ class TicketResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 
 class TicketHistoryResponse(BaseModel):

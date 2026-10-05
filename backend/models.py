@@ -31,6 +31,7 @@ class Ticket(Base):
     status = Column(String, default="aberto")    # aberto, em_andamento, fechado
     sla_vencimento = Column(DateTime, nullable=True)
     criado_em = Column(DateTime, default=utc_now)
+    fechado_em = Column(DateTime, nullable=True)
 
     # Vínculo com usuários (RBAC e atribuição de técnicos)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -56,8 +57,13 @@ class Ticket(Base):
         return self.criado_em.isoformat() if self.criado_em else None
 
     @property
+    def fechadoEm(self):
+        return self.fechado_em.isoformat() if self.fechado_em else None
+
+    @property
     def userId(self):
         return self.user_id
+
 
     @property
     def assignedToId(self):

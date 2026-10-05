@@ -50,3 +50,44 @@ def login(credentials: schemas.LoginRequest, db: Session = Depends(get_db)):
 @router.get("/me", response_model=schemas.UserResponse)
 def get_me(current_user: models.User = Depends(get_current_user)):
     return current_user
+
+
+@router.get("/users", response_model=list[schemas.UserResponse])
+def list_users(
+    role: str = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if current_user.role not in ["atendente", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas atendentes e administradores podem listar usuários.",
+        )
+    query = db.query(models.User)
+    if role and role.strip():
+        query = query.filter(models.User.role == role.strip().lower())
+    return query.order_by(models.User.name.asc()).all()
+
+
+@router.put("/users/{user_id}/role", response_model=schemas.UserResponse)
+def update_user_role(
+    user_id: int,
+    payload: schemas.UpdateUserRoleRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas administradores podem alterar o papel de usuários.",
+        )
+    target_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado.")
+
+    role_val = payload.role.value if hasattr(payload.role, "value") else str(payload.role)
+    target_user.role = role_val
+    db.commit()
+    db.refresh(target_user)
+    return target_user
+

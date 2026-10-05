@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -15,6 +15,13 @@ router = APIRouter(
 
 ALLOWED_STATUSES = {"aberto", "em_andamento", "fechado"}
 ALLOWED_PRIORITIES = {"baixa", "media", "alta", "urgente"}
+
+SLA_HOURS_BY_PRIORITY = {
+    "urgente": 4,
+    "alta": 12,
+    "media": 24,
+    "baixa": 48,
+}
 
 
 def utc_now():
@@ -150,6 +157,10 @@ def create_ticket(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Formato inválido de slaVencimento. Utilize o padrão ISO 8601.",
             )
+    else:
+        # Regra de negócio: cálculo automático do SLA baseado na prioridade
+        horas_sla = SLA_HOURS_BY_PRIORITY.get(prioridade_final, 24)
+        novo_ticket.sla_vencimento = novo_ticket.criado_em + timedelta(hours=horas_sla)
 
     db.add(novo_ticket)
     db.flush()
@@ -237,17 +248,29 @@ def update_ticket(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Status '{novo_status}' inválido. Valores aceitos: {', '.join(sorted(ALLOWED_STATUSES))}",
             )
+
+        if current_user.role == "cliente" and ticket.status == "fechado" and novo_status != "fechado":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Clientes não têm permissão para reabrir chamados já encerrados. Contate o suporte.",
+            )
+
         if ticket.status != novo_status:
+            acao_hist = "reabertura" if ticket.status == "fechado" else "alteracao_status"
             record_ticket_history(
                 db=db,
                 ticket_id=ticket.id,
                 user_id=current_user.id,
-                acao="alteracao_status",
+                acao=acao_hist,
                 campo="status",
                 valor_antigo=ticket.status,
                 valor_novo=novo_status,
             )
             ticket.status = novo_status
+            if novo_status == "fechado":
+                ticket.fechado_em = utc_now()
+            else:
+                ticket.fechado_em = None
 
     if payload:
         if payload.prioridade is not None:
@@ -356,6 +379,53 @@ def assign_ticket(
     return ticket
 
 
+# POST /tickets/:id/assumir - Atendente/Admin assume o chamado diretamente
+@router.post("/{ticket_id}/assumir", response_model=schemas.TicketResponse)
+def take_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if current_user.role not in ["atendente", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas atendentes ou administradores podem assumir chamados.",
+        )
+
+    ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket não encontrado")
+
+    valor_antigo = ticket.responsavel.name if ticket.responsavel else None
+    ticket.assigned_to_id = current_user.id
+
+    if ticket.status == "aberto":
+        ticket.status = "em_andamento"
+        record_ticket_history(
+            db=db,
+            ticket_id=ticket.id,
+            user_id=current_user.id,
+            acao="alteracao_status",
+            campo="status",
+            valor_antigo="aberto",
+            valor_novo="em_andamento",
+        )
+
+    record_ticket_history(
+        db=db,
+        ticket_id=ticket.id,
+        user_id=current_user.id,
+        acao="atribuicao_responsavel",
+        campo="assigned_to_id",
+        valor_antigo=valor_antigo,
+        valor_novo=current_user.name,
+    )
+
+    db.commit()
+    db.refresh(ticket)
+    return ticket
+
+
 # GET /tickets/:id/historico - Linha do tempo / histórico de auditoria
 @router.get("/{ticket_id}/historico", response_model=list[schemas.TicketHistoryResponse])
 def get_ticket_history(
@@ -427,6 +497,13 @@ def create_ticket_message(
 
     check_ticket_access(ticket, current_user)
 
+    # Regra de negócio: não é possível enviar mensagem em chamado fechado
+    if ticket.status == "fechado":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Não é possível enviar mensagens em um chamado já fechado.",
+        )
+
     papel_final = mensagem.papel.value if hasattr(mensagem.papel, "value") else (mensagem.papel or current_user.role or "atendente")
     autor_final = (mensagem.autor or current_user.name or "Suporte TI").strip()
 
@@ -438,6 +515,20 @@ def create_ticket_message(
         enviado_em=utc_now(),
     )
     db.add(nova_mensagem)
+
+    # Regra de negócio: se um atendente responde pela primeira vez em ticket 'aberto', transiciona para 'em_andamento'
+    if current_user.role in ["atendente", "admin"] and ticket.status == "aberto":
+        ticket.status = "em_andamento"
+        record_ticket_history(
+            db=db,
+            ticket_id=ticket.id,
+            user_id=current_user.id,
+            acao="alteracao_status",
+            campo="status",
+            valor_antigo="aberto",
+            valor_novo="em_andamento",
+        )
+
     db.commit()
     db.refresh(nova_mensagem)
     return nova_mensagem

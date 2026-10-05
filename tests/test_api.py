@@ -262,3 +262,106 @@ def test_assign_technician_and_history(auth_header):
     assert "criacao" in acoes
     assert "atribuicao_responsavel" in acoes
 
+
+def test_automatic_sla_by_priority(auth_header):
+    # Cria chamado com prioridade urgente sem passar slaVencimento
+    r_urgente = client.post(
+        "/tickets",
+        json={"titulo": "Chamado Urgente SLA", "prioridade": "urgente"},
+        headers=auth_header,
+    )
+    assert r_urgente.status_code == 201
+    sla_urgente = r_urgente.json()["slaVencimento"]
+    assert sla_urgente is not None
+
+    # Cria chamado com prioridade baixa sem passar slaVencimento
+    r_baixa = client.post(
+        "/tickets",
+        json={"titulo": "Chamado Baixa SLA", "prioridade": "baixa"},
+        headers=auth_header,
+    )
+    assert r_baixa.status_code == 201
+    sla_baixa = r_baixa.json()["slaVencimento"]
+    assert sla_baixa is not None
+    # SLA de baixa deve vencer depois do urgente
+    assert sla_baixa > sla_urgente
+
+
+def test_technician_take_ticket(auth_header):
+    ticket_resp = client.post("/tickets", json={"titulo": "Ticket para assumir", "status": "aberto"}, headers=auth_header)
+    t_id = ticket_resp.json()["id"]
+
+    # Atendente assume o chamado
+    resp = client.post(f"/tickets/{t_id}/assumir", headers=auth_header)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "em_andamento"
+    assert data["assignedToId"] is not None
+
+
+def test_auto_transition_on_technician_reply(auth_header):
+    # Cria ticket 'aberto'
+    t_resp = client.post("/tickets", json={"titulo": "Ticket Aberto para Resposta", "status": "aberto"}, headers=auth_header)
+    t_id = t_resp.json()["id"]
+
+    # Atendente envia mensagem
+    msg_resp = client.post(f"/tickets/{t_id}/mensagens", json={"texto": "Olá, estou analisando seu problema."}, headers=auth_header)
+    assert msg_resp.status_code == 201
+
+    # Ticket deve ter mudado automaticamente para 'em_andamento'
+    check_resp = client.get(f"/tickets/{t_id}", headers=auth_header)
+    assert check_resp.json()["status"] == "em_andamento"
+
+
+def test_closed_ticket_rules_and_reopen(auth_header):
+    t_resp = client.post("/tickets", json={"titulo": "Ticket para Fechar"}, headers=auth_header)
+    t_id = t_resp.json()["id"]
+
+    # Fecha o ticket
+    close_resp = client.put(f"/tickets/{t_id}", json={"status": "fechado"}, headers=auth_header)
+    assert close_resp.status_code == 200
+    assert close_resp.json()["fechadoEm"] is not None
+
+    # Tenta enviar mensagem em ticket fechado -> 400 Bad Request
+    msg_resp = client.post(f"/tickets/{t_id}/mensagens", json={"texto": "Mensagem atrasada"}, headers=auth_header)
+    assert msg_resp.status_code == 400
+    assert "já fechado" in msg_resp.json()["detail"]
+
+    # Atendente reabre o ticket
+    reopen_resp = client.put(f"/tickets/{t_id}", json={"status": "em_andamento"}, headers=auth_header)
+    assert reopen_resp.status_code == 200
+    assert reopen_resp.json()["fechadoEm"] is None
+
+    # Histórico deve registrar reabertura
+    h_resp = client.get(f"/tickets/{t_id}/historico", headers=auth_header)
+    acoes = [h["acao"] for h in h_resp.json()]
+    assert "reabertura" in acoes
+
+
+def test_user_management_and_admin_role_change(auth_header):
+    # Atendente lista usuários
+    u_list = client.get("/auth/users", headers=auth_header)
+    assert u_list.status_code == 200
+    assert len(u_list.json()) >= 1
+
+    # Cria usuário comum
+    user_email = f"user_{uuid.uuid4().hex[:8]}@example.com"
+    r_user = client.post("/auth/register", json={"email": user_email, "name": "Usuario Teste", "password": "senhaSegura123", "role": "cliente"})
+    user_id = r_user.json()["id"]
+
+    # Cria admin
+    admin_email = f"admin_{uuid.uuid4().hex[:8]}@example.com"
+    client.post("/auth/register", json={"email": admin_email, "name": "Super Admin", "password": "senhaSegura123", "role": "admin"})
+    l_admin = client.post("/auth/login", json={"email": admin_email, "password": "senhaSegura123"})
+    admin_header = {"Authorization": f"Bearer {l_admin.json()['access_token']}"}
+
+    # Atendente comum tenta alterar papel -> 403
+    fail_role = client.put(f"/auth/users/{user_id}/role", json={"role": "atendente"}, headers=auth_header)
+    assert fail_role.status_code == 403
+
+    # Admin altera papel -> 200 OK
+    ok_role = client.put(f"/auth/users/{user_id}/role", json={"role": "atendente"}, headers=admin_header)
+    assert ok_role.status_code == 200
+    assert ok_role.json()["role"] == "atendente"
+
+
